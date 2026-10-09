@@ -1,96 +1,93 @@
-# PicoRV32 SoC Firmware Workspace with Custom Security Peripheral
+# PicoRV32 SoC with Custom Security Accelerator (Hardware & Firmware)
 
-This workspace contains the complete firmware development environment, peripheral hardware drivers, and upload utilities for the **PicoRV32 RISC-V SoC** running on the Real Digital Boolean FPGA board (or compatible).
-
----
-
-## Architecture & Memory Map
-
-| Base Address | Region | Description |
-| :--- | :--- | :--- |
-| `0x0000_0000` | Boot ROM (2 KB) | Resident UART bootloader baked into bitstream |
-| `0x1000_0000` | Application RAM (8 KB) | User firmware loaded over UART at runtime |
-| `0x2000_0000` | UART DATA | Read: RX byte / Write: TX byte (115200 baud) |
-| `0x2000_0004` | UART STATUS | bit0: `TX_BUSY`, bit1: `RX_VALID` |
-| `0x3000_0000` | LED Register | 16-bit register connected to `led[15:0]` |
-| `0x4000_0000` | **Custom AES / CMAC Block** | Hardware cryptographic accelerator |
-
-### Custom Block (`0x4000_0000`) Registers
-- `+0x00`: **Control Register** (`CMD_START_ENCRYPT`, `CMD_START_DECRYPT`, `CMD_INIT_KEY`, `CMD_CMAC_GENERATE`, `CMD_CMAC_VERIFY`)
-- `+0x04`: **Status Register** (`KEY_READY`, `CIPHER_READY`, `BUSY`, `CMAC_DONE`, `CMAC_VALID`, `TAMPER_DETECTED`)
-- `+0x10..+0x1C`: **Data Registers** (128-bit input block: DATA0..DATA3)
-- `+0x20..+0x2C`: **Key Registers** (128-bit key: KEY0..KEY3)
-- `+0x30..+0x3C`: **AES Result Registers** (128-bit output block: RES0..RES3)
-- `+0x40..+0x4C`: **CMAC Output Tag Registers** (128-bit generated tag: TAG0..TAG3)
-- `+0x50..+0x5C`: **CMAC Expected Tag Registers** (128-bit expected tag: EXP0..EXP3)
+This repository is the central home for the complete **PicoRV32 RISC-V SoC Project**, integrating both the FPGA Hardware (RTL, Vivado synthesis, constraints) and the Software/Firmware (bare-metal drivers, test applications, and bootloader upload tools).
 
 ---
 
-## Directory Structure
+## 1. Repository Structure
 
 ```text
 picorv32-project/
-├── binaries/                  # Output binaries ready for flashing
-│   ├── app.bin                # Raw binary image (uploaded to App RAM)
-│   └── app.hex                # Memory hex representation
-├── firmware/
-│   ├── memory_map/
-│   │   └── registers.h        # Hardware register offsets & bitfield definitions
-│   ├── include/               # Modular driver headers
-│   │   ├── uart.h             # UART driver API
-│   │   ├── led.h              # LED driver API
-│   │   ├── delay.h            # Calibrated delay routines
-│   │   └── aes.h              # Custom AES/CMAC block driver API
-│   ├── src/                   # Driver implementations & app code
-│   │   ├── start.s            # RV32I startup assembly (stack initialization)
-│   │   ├── uart.c             # UART transmission, reception, and hex printing
-│   │   ├── led.c              # LED manipulation functions
-│   │   ├── delay.c            # Accurate busy-wait delays for 100 MHz clock
-│   │   ├── aes.c              # Complete hardware AES-128 & CMAC driver
-│   │   └── main.c             # Demo application testing all peripherals
-│   ├── sections.ld            # Linker script targeting 8 KB App RAM @ 0x10000000
-│   ├── Makefile               # Automated build script (rv32i bare-metal)
-│   └── tools/
-│       ├── makehex.py         # Binary to hex converter
-│       └── upload.py          # UART flasher script matching bootloader
+├── hardware/                  # FPGA Hardware & RTL Design (Verilog, constraints, Vivado)
+│   ├── rtl/                   # SoC RTL modules (top.v, picorv32.v, custom security core)
+│   ├── constraints/           # Board pin constraints (.xdc)
+│   ├── scripts/               # Vivado build & bitstream automation (.tcl)
+│   ├── tb/                    # Hardware simulation testbenches
+│   └── README.md              # Hardware team guidelines & register contract
+│
+├── firmware/                  # Bare-metal RISC-V C Firmware & Driver Libraries
+│   ├── memory_map/            # Hardware register definitions (registers.h)
+│   ├── include/               # Public API headers (aes.h, uart.h, led.h, delay.h)
+│   ├── src/                   # Driver implementations & main application
+│   ├── sections.ld            # Linker script (8 KB App RAM @ 0x10000000)
+│   ├── Makefile               # RV32I bare-metal compilation script
+│   ├── tools/                 # Upload and binary conversion tools
+│   └── README.md              # Firmware API reference & build guide
+│
+├── binaries/                  # Compiled firmware outputs
+│   ├── app.bin                # Raw application image sent over UART
+│   └── app.hex                # Memory hex image
+│
 ├── flash.bat                  # One-click Windows flasher script
-└── README.md
+└── README.md                  # Project overview (this file)
 ```
 
 ---
 
-## Building the Firmware
+## 2. System Architecture & Memory Map
 
-Build using `make` (inside WSL or a bash environment with `riscv64-unknown-elf-gcc` or `riscv-none-elf-gcc`):
+The SoC pairs the PicoRV32 CPU with memory and peripherals using memory-mapped I/O:
 
-```bash
-cd firmware
-make clean
-make
-```
-
-This compiles all drivers, links with `sections.ld`, and outputs `app.bin` and `app.hex` into the `binaries/` directory.
+| Address Range | Region | Size | Description |
+| :--- | :--- | :--- | :--- |
+| `0x0000_0000 - 0x0000_07FF` | **Boot ROM** | 2 KB | Permanent resident UART bootloader (baked into bitstream) |
+| `0x1000_0000 - 0x1000_1FFF` | **Application RAM** | 8 KB | Volatile FPGA block RAM written by the bootloader over UART |
+| `0x2000_0000` | **UART DATA** | 32-bit | Serial RX byte (read) / TX byte (write) @ 115200 baud |
+| `0x2000_0004` | **UART STATUS** | 32-bit | Bit 0: `TX_BUSY`, Bit 1: `RX_VALID` |
+| `0x3000_0000` | **LED Register** | 32-bit | 16-bit register driving board LEDs `led[15:0]` |
+| `0x4000_0000 - 0x4000_005C` | **Custom AES/CMAC** | 32-bit | Cryptographic hardware accelerator (see `hardware/README.md`) |
 
 ---
 
-## Flashing the Board
+## 3. Team Collaboration Workflow
 
-1. Ensure the FPGA is programmed with the PicoRV32 bitstream.
-2. The onboard LEDs will show pattern `0x0001` (waiting for upload).
-3. Run the flash command:
+### For Hardware Engineers (`hardware/`):
+* Place all Verilog RTL modules in `hardware/rtl/`.
+* Put Xilinx constraint files in `hardware/constraints/` (target: Real Digital Boolean board XC7S50-CSGA324-1, 100 MHz clock on pin `F14`).
+* Ensure address decoding strictly matches the table above and the register contract detailed in [`hardware/README.md`](hardware/README.md).
+* Preload the Boot ROM with `bootloader.hex` so the board can receive runtime firmware updates without repeated bitstream generation.
 
-### From Windows (PowerShell or Command Prompt):
-```powershell
-# Using the python script:
-python firmware\tools\upload.py COM15 binaries\app.bin
+### For Firmware Engineers (`firmware/`):
+* Develop drivers and user applications in `firmware/src/` and `firmware/include/`.
+* Compile using the RV32 bare-metal cross compiler:
+  ```bash
+  cd firmware
+  make clean && make
+  ```
+* Flashing firmware takes only seconds over serial—no Vivado synthesis required!
 
-# Or using the one-click script:
-.\flash.bat COM15
-```
+---
 
-### From Makefile:
-```bash
-make upload COM=COM15
-```
+## 4. How to Flash and Run
 
-When upload completes, the board acknowledges with `'K'`, all LEDs jump briefly to `0xFFFF`, and the application starts running immediately.
+### Step 1: Program the FPGA (Hardware)
+1. Open Vivado Hardware Manager and connect to your FPGA board.
+2. Program the device using the generated `.bit` bitstream file.
+3. Upon programming, the onboard LEDs show pattern `0x0001` (binary `0000000000000001`). This indicates the bootloader is running and ready for firmware.
+
+### Step 2: Upload Firmware (Software)
+With the board plugged in via USB-UART:
+
+* **From Windows (Command Prompt / PowerShell):**
+  ```cmd
+  flash.bat COM15
+  ```
+  *(Or: `python firmware\tools\upload.py COM15 binaries\app.bin`)*
+
+* **From Makefile (WSL / Linux):**
+  ```bash
+  cd firmware
+  make upload COM=COM15
+  ```
+
+Upon completion, the board acknowledges with `'K'`, all LEDs flash `0xFFFF` briefly, and your application immediately begins execution. To re-flash a new firmware build at any time, simply press `btn_rst` on the board to return to `0x0001` and run the flash command again.
