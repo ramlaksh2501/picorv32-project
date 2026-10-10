@@ -5,3 +5,4 @@ firmware/build/
 *.dis
 __pycache__/
 *.pyc
+*.vvp
