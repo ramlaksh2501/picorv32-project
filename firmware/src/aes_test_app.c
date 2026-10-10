@@ -139,14 +139,19 @@ static void init_master_key(void)
         ;
 }
 
+static void print_banner_sep(void)
+{
+    uart_puts("\r\n===================================================================\r\n");
+}
+
 // ----------------------------------------------------------------------------
 // CASE 1: LEGITIMATE HOST -> NODE SECURE COMMUNICATION & TELEMETRY REPLY
 // ----------------------------------------------------------------------------
 void handle_legitimate_command(void)
 {
-    uart_puts("\r\n===================================================================\r\n");
+    print_banner_sep();
     uart_puts(">>> [COMMUNICATION 1] HOST -> NODE: AUTHENTIC COMMAND PACKET <<<\r\n");
-    uart_puts("===================================================================\r\n");
+    print_banner_sep();
 
     LED_REG = 0x0000;
     delay_ms(300);
@@ -241,7 +246,7 @@ void handle_legitimate_command(void)
     } else {
         uart_puts("FAIL: Verification Error!\r\n");
     }
-    uart_puts("===================================================================\r\n");
+    print_banner_sep();
     delay_ms(2000); // Visual pause before returning to main menu
 }
 
@@ -250,9 +255,9 @@ void handle_legitimate_command(void)
 // ----------------------------------------------------------------------------
 void handle_tampered_packet(void)
 {
-    uart_puts("\r\n===================================================================\r\n");
-    uart_puts(">>> [COMMUNICATION 1] HOST -> NODE: ATTACKER TAMPERED PACKET <<<\r\n");
-    uart_puts("===================================================================\r\n");
+    print_banner_sep();
+    uart_puts(">>> [COMMUNICATION 2] HOST -> NODE: ATTACKER TAMPERED PACKET <<<\r\n");
+    print_banner_sep();
 
     LED_REG = 0x0FFF; // Baseline: transmission channel active
     delay_ms(300);
@@ -270,9 +275,9 @@ void handle_tampered_packet(void)
 
     uart_puts("[STEP 1/3] ACTIVE ATTACK IN TRANSMISSION CHANNEL\r\n");
     uart_puts("  Original Word 3 : 0x"); uart_puthex32(orig_p3);     uart_puts(" ('SORS')\r\n");
-    uart_puts("  Tampered Word 3 : 0x"); uart_puthex32(tampered_p3); uart_puts(" ('_SYS') <-- Corrupted by Attacker!\r\n");
-    uart_puts("  Attacker Tag    : Reusing original tag (Attacker cannot forge tag without key)\r\n");
-    delay_ms(1200); // Visual pause to inspect attack
+    uart_puts("  Tampered Word 3 : 0x"); uart_puthex32(tampered_p3); uart_puts(" ('_SYS') <-- Corrupted!\r\n");
+    uart_puts("  Attacker Tag    : Reusing original tag (cannot forge without key)\r\n");
+    delay_ms(1200);
 
     // ------------------------------------------------------------------------
     // NODE HARDWARE TAMPER CHECKER EVALUATION
@@ -293,35 +298,30 @@ void handle_tampered_packet(void)
 
     unsigned int st = AES_STATUS;
     uart_puts("  Status Register      : 0x"); uart_puthex32(st); uart_puts("\r\n");
-    uart_puts("  -> CMAC_VALID        = 0 (TAG MISMATCH - INTEGRITY COMPROMISED)\r\n");
-    uart_puts("  -> TAMPER_DETECTED   = 1 (SECURITY ALERT: PACKET MODIFIED!)\r\n");
-    delay_ms(1500); // Visual pause to inspect tamper status flags
+    uart_puts("  -> CMAC_VALID        = 0 (TAG MISMATCH)\r\n");
+    uart_puts("  -> TAMPER_DETECTED   = 1 (SECURITY ALERT)\r\n");
+    delay_ms(1500);
 
     if (!(st & STATUS_CMAC_VALID) && (st & STATUS_TAMPER_DETECTED)) {
-        // --------------------------------------------------------------------
-        // SECURITY QUARANTINE: DECRYPTION IS STRICTLY BLOCKED!
-        // --------------------------------------------------------------------
         uart_puts("\r\n[STEP 3/3] MILITARY NODE SECURITY POLICY ENFORCED\r\n");
-        uart_puts("  >> VERDICT           : TAMPER DETECTED / PACKET COMPROMISED!\r\n");
+        uart_puts("  >> VERDICT           : TAMPER DETECTED / COMPROMISED!\r\n");
         uart_puts("  >> DECRYPTION ACTION : STRICTLY BLOCKED & ABORTED!\r\n");
-        uart_puts("  >> PAYLOAD QUARANTINE: Malicious command was dropped and never decrypted.\r\n");
         uart_puts("  >> HARDWARE ALERT    : LD12..LD15 ARE NOW BLINKING ALONE!\r\n");
-        uart_puts("===================================================================\r\n");
+        print_banner_sep();
 
-        // Flash LD12..LD15 ALONE (top 4 LEDs) while LD0..LD11 stay solid ON
         for (int i = 0; i < 8; i++) {
-            LED_REG = 0xFFFF; // LD12..LD15 ON
+            LED_REG = 0xFFFF;
             delay_ms(250);
-            LED_REG = 0x0FFF; // LD12..LD15 OFF (LD0..LD11 stay solid)
+            LED_REG = 0x0FFF;
             delay_ms(250);
         }
-        LED_REG = 0x0FFF; // Leave LD12..LD15 OFF to mark rejected packet
-        uart_puts(">>> NODE OUTBOUND TO HOST: [ALERT: PACKET REJECTED - TAMPER DETECTED] <<<\r\n");
+        LED_REG = 0x0FFF;
+        uart_puts(">>> NODE OUTBOUND TO HOST: [ALERT: PACKET REJECTED] <<<\r\n");
     } else {
         uart_puts("FAIL: Hardware failed to flag tamper!\r\n");
     }
-    uart_puts("===================================================================\r\n");
-    delay_ms(2000); // Visual pause before returning to main menu
+    print_banner_sep();
+    delay_ms(2000);
 }
 
 // ----------------------------------------------------------------------------
@@ -329,10 +329,10 @@ void handle_tampered_packet(void)
 // ----------------------------------------------------------------------------
 void handle_custom_plaintext(void)
 {
-    uart_puts("\r\n===================================================================\r\n");
+    print_banner_sep();
     uart_puts(">>> [COMMUNICATION 3] LIVE RUNTIME USER PLAINTEXT DEMO <<<\r\n");
-    uart_puts("===================================================================\r\n");
-    uart_puts("Enter 16-character plaintext (type text and press Enter):\r\n> ");
+    print_banner_sep();
+    uart_puts("Enter 16-char plaintext (type text, press Enter):\r\n> ");
 
     char buf[17];
     int idx = 0;
@@ -366,26 +366,34 @@ void handle_custom_plaintext(void)
     uart_puts("[STEP 1/5] RECEIVED RUNTIME PLAINTEXT\r\n");
     uart_puts("  ASCII Plaintext : '"); uart_puts(buf); uart_puts("'\r\n");
     print_128("Plaintext Words ", p0, p1, p2, p3);
+    LED_REG = 0x000F;
+    delay_ms(2500);
 
     // 1. Hardware AES Encryption
+    uart_puts("\r\n[STEP 2/5] HARDWARE AES-128 ENCRYPTION (11 cycles)\r\n");
     AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = p3;
     AES_CONTROL = CMD_START_ENCRYPT;
     while (!(AES_STATUS & STATUS_CIPHER_READY))
         ;
     unsigned int ct0 = AES_RES0, ct1 = AES_RES1, ct2 = AES_RES2, ct3 = AES_RES3;
-    uart_puts("\r\n[STEP 2/5] HARDWARE AES-128 ENCRYPTION (11 cycles)\r\n");
     print_128("Ciphertext      ", ct0, ct1, ct2, ct3);
+    LED_REG = 0x00FF;
+    delay_ms(2500);
 
     // 2. Hardware CMAC Generation
+    uart_puts("\r\n[STEP 3/5] HARDWARE CMAC TAG GENERATION (14 cycles)\r\n");
     AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = p3;
     AES_CONTROL = CMD_CMAC_GENERATE;
     while (!(AES_STATUS & STATUS_CMAC_DONE))
         ;
     unsigned int tag0 = CMAC_TAG0, tag1 = CMAC_TAG1, tag2 = CMAC_TAG2, tag3 = CMAC_TAG3;
-    uart_puts("\r\n[STEP 3/5] HARDWARE CMAC TAG GENERATION (14 cycles)\r\n");
     print_128("CMAC Auth Tag   ", tag0, tag1, tag2, tag3);
+    LED_REG = 0x0FFF;
+    delay_ms(2500);
 
     // 3. Hardware CMAC Verification (Authentic check)
+    uart_puts("\r\n[STEP 4/5] NODE HARDWARE: VERIFYING & DECRYPTING...\r\n");
+    delay_ms(1200);
     AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = p3;
     CMAC_EXP0 = tag0; CMAC_EXP1 = tag1; CMAC_EXP2 = tag2; CMAC_EXP3 = tag3;
     AES_CONTROL = CMD_CMAC_VERIFY;
@@ -393,7 +401,11 @@ void handle_custom_plaintext(void)
         ;
     unsigned int st = AES_STATUS;
     if ((st & STATUS_CMAC_VALID) && !(st & STATUS_TAMPER_DETECTED)) {
-        uart_puts("\r\n[STEP 4/5] HARDWARE AUTHENTICITY CHECK: PASSED (VALID=1)\r\n");
+        uart_puts("  >> Tamper Checker    : NO TAMPER DETECTED (CMAC VALID = 1)\r\n");
+        uart_puts("  >> Packet Integrity  : 100% AUTHENTIC\r\n");
+        uart_puts("  >> Board LEDs        : [LD0..LD11 ON] (Channel Verified)\r\n");
+        LED_REG = 0x0FFF;
+        delay_ms(2000);
 
         // 4. Hardware AES Decryption
         AES_DATA0 = ct0; AES_DATA1 = ct1; AES_DATA2 = ct2; AES_DATA3 = ct3;
@@ -402,16 +414,20 @@ void handle_custom_plaintext(void)
             ;
         unsigned int dec0 = AES_RES0, dec1 = AES_RES1, dec2 = AES_RES2, dec3 = AES_RES3;
         print_128("Decrypted Words ", dec0, dec1, dec2, dec3);
-        uart_puts("  >> Recovered Text: '"); uart_puts(buf); uart_puts("'\r\n");
-        uart_puts("  >> Board LEDs    : [ALL 16 LEDs SOLID ON] (0xFFFF)\r\n");
+        uart_puts("  >> Recovered Text    : '"); uart_puts(buf); uart_puts("'\r\n");
+        uart_puts("  >> Board LEDs        : [ALL 16 LEDs SOLID ON] (0xFFFF)\r\n");
         LED_REG = 0xFFFF;
-        delay_ms(1500);
+        delay_ms(3500);
     }
 
     // 5. Active Tamper Attack & Quarantine Demonstration
-    uart_puts("\r\n[STEP 5/5] INJECTING TAMPER ATTACK ON THIS PAYLOAD...\r\n");
-    unsigned int tampered_p3 = p3 ^ 0x000000FF; // Corrupt 1 byte
-    uart_puts("  >> Modifying 1 byte of payload with original tag...\r\n");
+    uart_puts("\r\n[STEP 5/5] INJECTING CHANNEL TAMPER ATTACK ON THIS PAYLOAD...\r\n");
+    delay_ms(1500);
+    unsigned int tampered_p3 = p3 ^ 0x000000FF; // Corrupt last byte
+    uart_puts("  >> Attacker Action   : Injected 1-byte corruption into payload\r\n");
+    uart_puts("  >> Attacker Tag      : Reusing original tag\r\n");
+    delay_ms(2000);
+
     AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = tampered_p3;
     CMAC_EXP0 = tag0; CMAC_EXP1 = tag1; CMAC_EXP2 = tag2; CMAC_EXP3 = tag3;
     AES_CONTROL = CMD_CMAC_VERIFY;
@@ -419,19 +435,19 @@ void handle_custom_plaintext(void)
         ;
     unsigned int t_st = AES_STATUS;
     if ((t_st & STATUS_TAMPER_DETECTED) && !(t_st & STATUS_CMAC_VALID)) {
-        uart_puts("  >> Hardware Flag : TAMPER_DETECTED = 1, CMAC_VALID = 0\r\n");
-        uart_puts("  >> SECURITY VERDICT: DECRYPTION STRICTLY BLOCKED & QUARANTINED!\r\n");
-        uart_puts("  >> Board LEDs    : [LD12..LD15 BLINKING RAPIDLY ALONE]\r\n");
-        for (int i = 0; i < 6; i++) {
-            LED_REG = 0xFFFF;
-            delay_ms(200);
-            LED_REG = 0x0FFF;
-            delay_ms(200);
+        uart_puts("  >> Hardware Status   : TAMPER_DETECTED = 1, CMAC_VALID = 0\r\n");
+        uart_puts("  >> SECURITY VERDICT  : ACTIVE ATTACK! DECRYPTION STRICTLY BLOCKED!\r\n");
+        uart_puts("  >> Board Alert LEDs  : [LD12..LD15 BLINKING ALONE]\r\n");
+        for (int i = 0; i < 8; i++) {
+            LED_REG = 0xF000;
+            delay_ms(300);
+            LED_REG = 0x0000;
+            delay_ms(300);
         }
         LED_REG = 0x0000;
     }
-    uart_puts("===================================================================\r\n");
-    delay_ms(1000);
+    print_banner_sep();
+    delay_ms(2500);
 }
 
 // ----------------------------------------------------------------------------
@@ -439,17 +455,17 @@ void handle_custom_plaintext(void)
 // ----------------------------------------------------------------------------
 static void print_menu(void)
 {
-    uart_puts("\r\n");
-    uart_puts("===================================================================\r\n");
+    print_banner_sep();
     uart_puts("      SPARTAN-7 MILITARY FIELD NODE SoC: SECURE CONTROLLER        \r\n");
-    uart_puts("===================================================================\r\n");
+    print_banner_sep();
     uart_puts("  Choose Host -> Node Communication Scenario:\r\n");
     uart_puts("    [1] - Send Authentic Host Command  (Legitimate -> All 16 LEDs ON)\r\n");
     uart_puts("    [2] - Inject Channel Tamper Attack (Attacker   -> LD12..LD15 Blinks)\r\n");
-    uart_puts("    [3] - Enter Custom Plaintext Live  (Dynamic Input & Tamper Test)\r\n");
+    uart_puts("    [3] - Enter Custom Plaintext Live  (Step-by-Step Live Demo)\r\n");
     uart_puts("-------------------------------------------------------------------\r\n");
     uart_puts("Selection (1, 2, or 3) > ");
 }
+
 
 static char get_clean_choice(void)
 {

@@ -32,13 +32,6 @@ def main():
     print("=" * 68)
     print(f"  Target Port : {port} @ 115200 baud")
     print(f"  Firmware    : {bin_file} ({len(data)} bytes)")
-    print("-------------------------------------------------------------------")
-    print("  INSTRUCTIONS:")
-    print("  1. Press and HOLD the 'BTN0' button on the FPGA board.")
-    print("  2. Hit ENTER in this window, then immediately RELEASE BTN0.")
-    print("-------------------------------------------------------------------")
-    input("Ready? Hold BTN0 and hit ENTER > ")
-
     try:
         s = serial.Serial(port, 115200, timeout=3, rtscts=False, dsrdtr=False)
     except Exception as e:
@@ -50,6 +43,13 @@ def main():
     s.rts = False
     time.sleep(0.05)
     s.reset_input_buffer()
+
+    print("-------------------------------------------------------------------")
+    print("  EASY 2-STEP INSTRUCTIONS:")
+    print("  1. Press and RELEASE the 'BTN0' button on the board (see LD0 turn ON).")
+    print("  2. While LD0 is lit (within 2 sec), hit ENTER below!")
+    print("-------------------------------------------------------------------")
+    input("Press and RELEASE BTN0, then hit ENTER immediately > ")
 
     print("\n[1/2] Streaming updated firmware image into App RAM...")
     header = struct.pack("<I", len(data))
@@ -95,9 +95,8 @@ def main():
         finally:
             stop_flag = True
             s.close()
-    else:
-        print(f"\n[ERROR] Bootloader did not respond (received {ack!r}).")
-        print("Tip: Make sure to hold BTN0 when hitting Enter, then release BTN0.")
+        print("[ERROR] Bootloader did not respond (received " + repr(ack) + ").")
+        print("Tip: Tap and RELEASE BTN0 so LD0 lights up, then immediately press Enter.")
         s.close()
 
 if __name__ == "__main__":
