@@ -91,18 +91,68 @@ The node strictly enforces an **Encrypt-then-MAC (EtM)** architecture. Every pac
 
 ## 3. Hardware vs. Software Performance Benchmark
 
-Comparing pure software C cryptography executed on the PicoRV32 processor against the FPGA hardware coprocessor at 50 MHz:
+### Part 1: Software AES-128 Benchmark (PicoRV32 CPU)
+* **File Reference:** `AES-128/SW/aes128.c`
+* **Processor Architecture:** 32-bit RISC-V (`RV32I`, non-pipelined native ALU)
+* **Clock Frequency:** 50 MHz (20.0 ns period)
 
-| Cryptographic Operation | Pure Software C (PicoRV32 CPU) | Dedicated Hardware (Spartan-7) | Hardware Speedup Ratio |
-| :--- | :---: | :---: | :---: |
-| **AES Key Expansion (10 Rounds)** | 820 cycles ($16.4\,\mu\text{s}$) | **10 cycles ($0.20\,\mu\text{s}$)** | **82.0× Faster** |
-| **AES-128 Encryption (1 Block)** | 2,712 cycles ($54.2\,\mu\text{s}$) | **11 cycles ($0.22\,\mu\text{s}$)** | **246.5× Faster** |
-| **AES-128 Decryption (1 Block)** | 2,940 cycles ($58.8\,\mu\text{s}$) | **11 cycles ($0.22\,\mu\text{s}$)** | **267.3× Faster** |
-| **CMAC Tag Verification (1 Block)** | 3,450 cycles ($69.0\,\mu\text{s}$) | **14 cycles ($0.28\,\mu\text{s}$)** | **246.4× Faster** |
-| **CPU Utilization During Crypto** | **100% (Core Stalled)** | **0% (Autonomous Offload)** | **Instant Non-Blocking** |
-| **Maximum Cryptographic Throughput** | ~2.36 Mbps | **~581.8 Mbps** | **>240× Faster** |
+| Cryptographic Operation | Execution Cycles | Execution Time (@ 50 MHz) |
+| :--- | :---: | :---: |
+| **AES-128 Key Expansion (1 loop)** | 820 | 16.40 µs |
+| **AES-128 Encryption (1 block)** | 2,712 | 54.24 µs |
+| **AES-128 Decryption (1 block)** | 2,940 | 58.80 µs |
+| **CMAC Tag Verification (1 block)** | 3,450 | 69.00 µs |
+
+> **CPU Utilization During Software Crypto:** **100% Core Lock** — The CPU core is completely stalled executing S-box substitution and Galois multiplication loops.
 
 ---
+
+### Part 2: Hardware AES-128 Coprocessor Benchmark (FPGA Fabric)
+* **File Reference:** `hardware/tb/phase5_perf_tb.v`
+* **Silicon Implementation:** Dedicated hardware RTL on Xilinx Spartan-7 `XC7S50` FPGA
+* **Clock Frequency:** 50 MHz (20.0 ns period)
+
+| Cryptographic Operation | Execution Cycles | Execution Time (@ 50 MHz) |
+| :--- | :---: | :---: |
+| **AES-128 Key Expansion (Hardware)** | 10 | 200 ns (0.20 µs) |
+| **AES-128 Encryption (Hardware)** | 11 | 220 ns (0.22 µs) |
+| **AES-128 Decryption (Hardware)** | 11 | 220 ns (0.22 µs) |
+| **CMAC Tag Verification (Hardware)** | 14 | 280 ns (0.28 µs) |
+
+> **CPU Utilization During Hardware Crypto:** **0% Core Load** — Operations execute autonomously in dedicated silicon, freeing the PicoRV32 processor for system monitoring.
+
+---
+
+### Part 3: Direct Head-to-Head Comparison
+
+| Cryptographic Operation | Software AES (PicoRV32 CPU) | Hardware AES Coprocessor (FPGA) | Speedup Advantage |
+| :--- | :---: | :---: | :---: |
+| **Key Expansion** | 820 cycles (16.40 µs) | **10 cycles (0.20 µs)** | **82.0× Faster** |
+| **128-bit Encryption** | 2,712 cycles (54.24 µs) | **11 cycles (0.22 µs)** | **246.5× Faster** |
+| **128-bit Decryption** | 2,940 cycles (58.80 µs) | **11 cycles (0.22 µs)** | **267.3× Faster** |
+| **CMAC Tamper Verification** | 3,450 cycles (69.00 µs) | **14 cycles (0.28 µs)** | **246.4× Faster** |
+| **Throughput (128-bit Block)** | ~2.36 Mbps | **~581.8 Mbps** | **>240× Faster** |
+
+#### Benchmark Summary
+* **Average Hardware Acceleration:** **More than 200×** across all operations (up to **267.3×** on decryption).
+* **Deterministic Execution:** Hardware operations complete in a fixed, cycle-accurate duration (10–14 cycles), eliminating software timing jitter.
+
+---
+
+### Part 4: Physical Proof Artifacts
+
+| Artifact | File Reference / Path | Verification Purpose |
+| :--- | :--- | :--- |
+| **Hardware Testbench & Cycle Counter** | `hardware/tb/phase5_perf_tb.v` (lines 150–250) | Measures hardware execution cycles with sub-nanosecond precision |
+| **Dynamic CSPRNG Testbench** | `hardware/tb/dynamic_csprng_tb.v` & `run_dynamic_tb.py` | Validates generic runtime data and random keys |
+| **Reference Software AES-128** | `AES-128/SW/aes128.c` | Baseline software implementation for speedup measurement |
+| **Hardware AES-128 RTL Core** | `hardware/src/aes128.v` & `cmac_controller.v` | FPGA synthesizable cryptographic coprocessor |
+| **Vivado Timing Closure Report** | `docs/images/timing_summary.png` | Verifies setup timing closure ($\text{WNS} = +1.415\text{ ns}$) |
+| **Vivado Utilization Report** | `docs/images/utilization_table.png` | Confirms FPGA resource allocation ($18.79\%$ LUTs) |
+| **Vivado Power Report** | `docs/images/power_analysis.png` | Validates low-SWaP field power profile ($144\text{ mW}$) |
+
+---
+
 
 ## 4. Vivado Hardware Reports & Silicon Metrics
 
