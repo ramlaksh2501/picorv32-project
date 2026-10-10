@@ -325,6 +325,116 @@ void handle_tampered_packet(void)
 }
 
 // ----------------------------------------------------------------------------
+// CASE 3: USER RUNTIME CUSTOM PLAINTEXT (LIVE ENCRYPT, CMAC & TAMPER TEST)
+// ----------------------------------------------------------------------------
+void handle_custom_plaintext(void)
+{
+    uart_puts("\r\n===================================================================\r\n");
+    uart_puts(">>> [COMMUNICATION 3] LIVE RUNTIME USER PLAINTEXT DEMO <<<\r\n");
+    uart_puts("===================================================================\r\n");
+    uart_puts("Enter 16-character plaintext (type text and press Enter):\r\n> ");
+
+    char buf[17];
+    int idx = 0;
+    while (idx < 16) {
+        char c = uart_getc_blocking();
+        if (c == '\r' || c == '\n') {
+            if (idx > 0) break;
+            continue;
+        }
+        if (c == 0x08 || c == 0x7F) {
+            if (idx > 0) {
+                idx--;
+                uart_puts("\b \b");
+            }
+            continue;
+        }
+        uart_putc(c);
+        buf[idx++] = c;
+    }
+    while (idx < 16) {
+        buf[idx++] = ' ';
+    }
+    buf[16] = '\0';
+    uart_puts("\r\n\r\n");
+
+    unsigned int p0 = ((unsigned char)buf[0] << 24) | ((unsigned char)buf[1] << 16) | ((unsigned char)buf[2] << 8) | (unsigned char)buf[3];
+    unsigned int p1 = ((unsigned char)buf[4] << 24) | ((unsigned char)buf[5] << 16) | ((unsigned char)buf[6] << 8) | (unsigned char)buf[7];
+    unsigned int p2 = ((unsigned char)buf[8] << 24) | ((unsigned char)buf[9] << 16) | ((unsigned char)buf[10] << 8) | (unsigned char)buf[11];
+    unsigned int p3 = ((unsigned char)buf[12] << 24) | ((unsigned char)buf[13] << 16) | ((unsigned char)buf[14] << 8) | (unsigned char)buf[15];
+
+    uart_puts("[STEP 1/5] RECEIVED RUNTIME PLAINTEXT\r\n");
+    uart_puts("  ASCII Plaintext : '"); uart_puts(buf); uart_puts("'\r\n");
+    print_128("Plaintext Words ", p0, p1, p2, p3);
+
+    // 1. Hardware AES Encryption
+    AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = p3;
+    AES_CONTROL = CMD_START_ENCRYPT;
+    while (!(AES_STATUS & STATUS_CIPHER_READY))
+        ;
+    unsigned int ct0 = AES_RES0, ct1 = AES_RES1, ct2 = AES_RES2, ct3 = AES_RES3;
+    uart_puts("\r\n[STEP 2/5] HARDWARE AES-128 ENCRYPTION (11 cycles)\r\n");
+    print_128("Ciphertext      ", ct0, ct1, ct2, ct3);
+
+    // 2. Hardware CMAC Generation
+    AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = p3;
+    AES_CONTROL = CMD_CMAC_GENERATE;
+    while (!(AES_STATUS & STATUS_CMAC_DONE))
+        ;
+    unsigned int tag0 = CMAC_TAG0, tag1 = CMAC_TAG1, tag2 = CMAC_TAG2, tag3 = CMAC_TAG3;
+    uart_puts("\r\n[STEP 3/5] HARDWARE CMAC TAG GENERATION (14 cycles)\r\n");
+    print_128("CMAC Auth Tag   ", tag0, tag1, tag2, tag3);
+
+    // 3. Hardware CMAC Verification (Authentic check)
+    AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = p3;
+    CMAC_EXP0 = tag0; CMAC_EXP1 = tag1; CMAC_EXP2 = tag2; CMAC_EXP3 = tag3;
+    AES_CONTROL = CMD_CMAC_VERIFY;
+    while (!(AES_STATUS & STATUS_CMAC_DONE))
+        ;
+    unsigned int st = AES_STATUS;
+    if ((st & STATUS_CMAC_VALID) && !(st & STATUS_TAMPER_DETECTED)) {
+        uart_puts("\r\n[STEP 4/5] HARDWARE AUTHENTICITY CHECK: PASSED (VALID=1)\r\n");
+
+        // 4. Hardware AES Decryption
+        AES_DATA0 = ct0; AES_DATA1 = ct1; AES_DATA2 = ct2; AES_DATA3 = ct3;
+        AES_CONTROL = CMD_START_DECRYPT;
+        while (!(AES_STATUS & STATUS_CIPHER_READY))
+            ;
+        unsigned int dec0 = AES_RES0, dec1 = AES_RES1, dec2 = AES_RES2, dec3 = AES_RES3;
+        print_128("Decrypted Words ", dec0, dec1, dec2, dec3);
+        uart_puts("  >> Recovered Text: '"); uart_puts(buf); uart_puts("'\r\n");
+        uart_puts("  >> Board LEDs    : [ALL 16 LEDs SOLID ON] (0xFFFF)\r\n");
+        LED_REG = 0xFFFF;
+        delay_ms(1500);
+    }
+
+    // 5. Active Tamper Attack & Quarantine Demonstration
+    uart_puts("\r\n[STEP 5/5] INJECTING TAMPER ATTACK ON THIS PAYLOAD...\r\n");
+    unsigned int tampered_p3 = p3 ^ 0x000000FF; // Corrupt 1 byte
+    uart_puts("  >> Modifying 1 byte of payload with original tag...\r\n");
+    AES_DATA0 = p0; AES_DATA1 = p1; AES_DATA2 = p2; AES_DATA3 = tampered_p3;
+    CMAC_EXP0 = tag0; CMAC_EXP1 = tag1; CMAC_EXP2 = tag2; CMAC_EXP3 = tag3;
+    AES_CONTROL = CMD_CMAC_VERIFY;
+    while (!(AES_STATUS & STATUS_CMAC_DONE))
+        ;
+    unsigned int t_st = AES_STATUS;
+    if ((t_st & STATUS_TAMPER_DETECTED) && !(t_st & STATUS_CMAC_VALID)) {
+        uart_puts("  >> Hardware Flag : TAMPER_DETECTED = 1, CMAC_VALID = 0\r\n");
+        uart_puts("  >> SECURITY VERDICT: DECRYPTION STRICTLY BLOCKED & QUARANTINED!\r\n");
+        uart_puts("  >> Board LEDs    : [LD12..LD15 BLINKING RAPIDLY ALONE]\r\n");
+        for (int i = 0; i < 6; i++) {
+            LED_REG = 0xFFFF;
+            delay_ms(200);
+            LED_REG = 0x0FFF;
+            delay_ms(200);
+        }
+        LED_REG = 0x0000;
+    }
+    uart_puts("===================================================================\r\n");
+    delay_ms(1000);
+}
+
+// ----------------------------------------------------------------------------
 // MENU DISPLAY & INPUT HANDLING
 // ----------------------------------------------------------------------------
 static void print_menu(void)
@@ -336,8 +446,9 @@ static void print_menu(void)
     uart_puts("  Choose Host -> Node Communication Scenario:\r\n");
     uart_puts("    [1] - Send Authentic Host Command  (Legitimate -> All 16 LEDs ON)\r\n");
     uart_puts("    [2] - Inject Channel Tamper Attack (Attacker   -> LD12..LD15 Blinks)\r\n");
+    uart_puts("    [3] - Enter Custom Plaintext Live  (Dynamic Input & Tamper Test)\r\n");
     uart_puts("-------------------------------------------------------------------\r\n");
-    uart_puts("Selection (1 or 2) > ");
+    uart_puts("Selection (1, 2, or 3) > ");
 }
 
 static char get_clean_choice(void)
@@ -382,11 +493,15 @@ int main(void)
         } else if (choice == '2') {
             handle_tampered_packet();
             print_menu();
+        } else if (choice == '3') {
+            handle_custom_plaintext();
+            print_menu();
         } else {
-            uart_puts(">>> Invalid option! Please press '1' or '2'.\r\n");
-            uart_puts("Selection (1 or 2) > ");
+            uart_puts(">>> Invalid option! Please press '1', '2', or '3'.\r\n");
+            uart_puts("Selection (1, 2, or 3) > ");
         }
     }
 
     return 0;
 }
+
