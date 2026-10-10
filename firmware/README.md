@@ -17,11 +17,12 @@ firmware/
 │   └── delay.h            # Calibrated delay functions (100 MHz clock)
 ├── src/                   # Source implementations
 │   ├── start.s            # RV32I startup assembly (stack pointer init)
+│   ├── main.c             # Military Field Node SoC Secure Controller (production app)
+│   ├── aes_test_app.c     # Standalone secure node communication application
 │   ├── aes.c              # Cryptographic hardware accelerator routines
 │   ├── uart.c             # Serial communication & formatted hex output
 │   ├── led.c              # LED register control
-│   ├── delay.c            # Calibrated busy-wait loops
-│   └── main.c             # Application entry point
+│   └── delay.c            # Calibrated busy-wait loops
 ├── sections.ld            # Linker script (8 KB App RAM @ 0x10000000)
 ├── Makefile               # GNU Make build configuration
 └── tools/
@@ -134,8 +135,8 @@ make
 * `-ffreestanding -nostdlib`: Bare-metal execution without OS runtime or standard libraries.
 
 Build outputs are saved to `../binaries/`:
-* `app.bin`: Raw binary flashed directly to FPGA App RAM.
-* `app.hex`: Memory hex file for simulation or ROM initialization.
+* `app.bin` / `aes_test_app.bin`: Raw binary flashed directly to FPGA App RAM.
+* `app.hex` / `aes_test_app.hex`: Memory hex file for simulation or ROM initialization (2048 words, 8 KB).
 
 ---
 
